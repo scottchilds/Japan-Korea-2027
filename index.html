@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Japan 2027</title>
+<style>
+:root{--bg:#f6f4f0;--card:#fff;--tx:#1d1d1f;--mu:#6e6e73;--ac:#c0392b;--bd:#e2ded8}
+@media(prefers-color-scheme:dark){:root{--bg:#121212;--card:#1e1e1e;--tx:#f2f2f2;--mu:#a0a0a5;--bd:#333}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.4 -apple-system,system-ui,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
+#app{max-width:640px;margin:0 auto;padding:12px}
+header{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+h1{font-size:20px;margin:0 auto 0 0}h2{font-size:17px;margin:0 0 10px}
+button{font:inherit;padding:8px 12px;border-radius:8px;border:1px solid var(--bd);background:var(--card);color:var(--tx)}
+button.pri{background:var(--ac);border-color:var(--ac);color:#fff}button.del{color:var(--ac)}
+.day{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:12px}
+.dh{display:flex;justify-content:space-between;gap:8px}.dh b{font-size:17px}
+.mu{color:var(--mu);font-size:14px}
+.act{border-top:1px solid var(--bd);padding:10px 0}.act:first-of-type{margin-top:8px}
+.act a{color:var(--ac)}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px}
+.chip{font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--bd);color:var(--mu)}
+.on{border-color:var(--ac);color:var(--ac)}
+.ov{position:fixed;inset:0;background:#0008;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--card);width:100%;max-width:640px;max-height:92vh;overflow:auto;border-radius:16px 16px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
+label{display:block;font-size:14px;color:var(--mu);margin-bottom:10px}
+input,select,textarea{display:block;width:100%;font:inherit;font-size:16px;padding:8px;margin-top:4px;border-radius:8px;border:1px solid var(--bd);background:var(--bg);color:var(--tx)}
+.err{color:var(--ac);font-size:14px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const db = supabase.createClient('https://rnhokdffdbizovainxpn.supabase.co', 'sb_publishable_Vpf_xbvrYIfRjdJXrLSuRg_7Ozy9u_F');
+const app = document.getElementById('app');
+let user = null, days = [], acts = [], hearts = [], modal = null, err = '';
+const TYPES = {port:'Port', sea_day:'Sea day', scenic_cruising:'Scenic cruising', city_stay:'City stay', other:'Other'};
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fd = d => d ? new Date(d + 'T00:00:00').toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'}) : 'Date TBD';
+const ft = s => { if (!s) return ''; const [h, m] = s.split(':'); return ((+h % 12) || 12) + ':' + m + ' ' + (+h < 12 ? 'AM' : 'PM'); };
+const dayCmp = (x, y) => (x.day_date ? 0 : 1) - (y.day_date ? 0 : 1) || (x.day_date || '').localeCompare(y.day_date || '') || x.sort_order - y.sort_order;
+
+async function load() {
+  const [d, a, h] = await Promise.all([
+    db.from('days').select('*'),
+    db.from('activities').select('*').order('created_at'),
+    db.from('hearts').select('*')
+  ]);
+  const e = d.error || a.error || h.error;
+  if (e) alert('Could not load data: ' + e.message);
+  else { days = d.data; acts = a.data; hearts = h.data; }
+  render();
+}
+
+function actHtml(a) {
+  const n = hearts.filter(h => h.activity_id === a.id).length;
+  const mine = hearts.some(h => h.activity_id === a.id && h.user_id === user.id);
+  const link = /^https?:\/\//i.test(a.url || '');
+  return `<div class="act"><div>${link ? `<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title)}</a>` : esc(a.title)}</div>
+    ${a.notes ? `<div class="mu">${esc(a.notes)}</div>` : ''}
+    <div class="row"><span class="chip">${esc(a.status)}</span>
+    <button class="${mine ? 'on' : ''}" data-act="heart" data-id="${a.id}">${mine ? '♥' : '♡'} ${n}</button>
+    <button data-act="edit-act" data-id="${a.id}">Edit</button>
+    <span class="mu">added by ${a.added_by === user.id ? 'you' : 'them'}</span></div></div>`;
+}
+
+function dayHtml(d) {
+  const t = [d.arrival_time && 'Arrive ' + ft(d.arrival_time), d.departure_time && 'Leave ' + ft(d.departure_time),
+    d.day_type === 'port' && 'All aboard: ' + (ft(d.all_aboard_time) || 'not set')].filter(Boolean).join(' · ');
+  return `<div class="day"><div class="dh"><div><b>${esc(d.label)}</b><div class="mu">${fd(d.day_date)} · ${TYPES[d.day_type]}</div>
+    ${t ? `<div class="mu">${t}</div>` : ''}${d.notes ? `<div class="mu">${esc(d.notes)}</div>` : ''}</div>
+    <div><button data-act="edit-day" data-id="${d.id}">Edit</button></div></div>
+    ${acts.filter(a => a.day_id === d.id).map(actHtml).join('')}
+    <div class="row"><button data-act="new-act" data-day="${d.id}">+ Add here</button></div></div>`;
+}
+
+function modalHtml() {
+  let b;
+  if (modal.t === 'act') {
+    const a = acts.find(x => x.id === modal.id) || {day_id: modal.day || ''};
+    b = `<h2>${modal.id ? 'Edit' : 'Add'} activity</h2><form id="actForm">
+    <label>Title<input name="title" value="${esc(a.title)}"></label>
+    <label>Link (optional)<input name="url" inputmode="url" value="${esc(a.url)}"></label>
+    <label>Notes<textarea name="notes" rows="3">${esc(a.notes)}</textarea></label>
+    <label>Day<select name="day_id"><option value="">Not assigned yet</option>${[...days].sort(dayCmp).map(d =>
+      `<option value="${d.id}" ${d.id === a.day_id ? 'selected' : ''}>${esc(d.label)}${d.day_date ? '' : ' (date TBD)'}</option>`).join('')}</select></label>
+    <div class="row"><button class="pri">Save</button><button type="button" data-act="close">Cancel</button>
+    ${modal.id ? '<button type="button" class="del" data-act="del-act">Delete</button>' : ''}</div></form>`;
+  } else {
+    const d = days.find(x => x.id === modal.id) || {day_type: 'city_stay', location: 'Tokyo, Japan'};
+    const tm = s => esc((s || '').slice(0, 5));
+    b = `<h2>${modal.id ? 'Edit' : 'Add'} day</h2><form id="dayForm">
+    <label>Label<input name="label" required value="${esc(d.label)}" placeholder="Tokyo day 1"></label>
+    <label>Location<input name="location" value="${esc(d.location)}"></label>
+    <label>Type<select name="day_type">${Object.entries(TYPES).map(([k, v]) => `<option value="${k}" ${k === d.day_type ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+    <label>Date (leave blank if not decided)<input type="date" name="day_date" value="${esc(d.day_date)}"></label>
+    <label>Arrive<input type="time" name="arrival_time" value="${tm(d.arrival_time)}"></label>
+    <label>Depart<input type="time" name="departure_time" value="${tm(d.departure_time)}"></label>
+    <label>All aboard<input type="time" name="all_aboard_time" value="${tm(d.all_aboard_time)}"></label>
+    <label>Notes<textarea name="notes" rows="2">${esc(d.notes)}</textarea></label>
+    <div class="row"><button class="pri">Save</button><button type="button" data-act="close">Cancel</button>
+    ${modal.id ? '<button type="button" class="del" data-act="del-day">Delete</button>' : ''}</div></form>`;
+  }
+  return `<div class="ov"><div class="sheet">${b}</div></div>`;
+}
+
+function render() {
+  if (!user) {
+    app.innerHTML = `<h1>Japan 2027</h1><form id="loginForm" style="margin-top:16px">
+      <label>Email<input name="email" type="email" autocomplete="username" required></label>
+      <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+      ${err ? `<p class="err">${esc(err)}</p>` : ''}<button class="pri">Sign in</button></form>`;
+    return;
+  }
+  const loose = acts.filter(a => !a.day_id);
+  app.innerHTML = `<header><h1>Japan 2027</h1><button class="pri" data-act="new-act">+ Activity</button>
+    <button data-act="new-day">+ Day</button><button data-act="signout">Sign out</button></header>
+    ${loose.length ? `<div class="day"><b>Not assigned to a day yet</b>${loose.map(actHtml).join('')}</div>` : ''}
+    ${[...days].sort(dayCmp).map(dayHtml).join('')}${modal ? modalHtml() : ''}`;
+}
+
+document.addEventListener('click', async e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const {act, id, day} = b.dataset;
+  if (act === 'new-act') { modal = {t: 'act', day}; render(); }
+  else if (act === 'edit-act') { modal = {t: 'act', id}; render(); }
+  else if (act === 'new-day') { modal = {t: 'day'}; render(); }
+  else if (act === 'edit-day') { modal = {t: 'day', id}; render(); }
+  else if (act === 'close') { modal = null; render(); }
+  else if (act === 'signout') { await db.auth.signOut(); user = null; render(); }
+  else if (act === 'heart') {
+    const mine = hearts.some(h => h.activity_id === id && h.user_id === user.id);
+    const r = mine ? await db.from('hearts').delete().eq('activity_id', id).eq('user_id', user.id)
+                   : await db.from('hearts').insert({activity_id: id});
+    if (r.error) alert(r.error.message); else await load();
+  } else if (act === 'del-act' || act === 'del-day') {
+    if (!confirm(act === 'del-act' ? 'Delete this activity?' : 'Delete this day? Its activities will move to "Not assigned".')) return;
+    const r = await db.from(act === 'del-act' ? 'activities' : 'days').delete().eq('id', modal.id);
+    if (r.error) return alert(r.error.message);
+    modal = null; await load();
+  }
+});
+
+document.addEventListener('submit', async e => {
+  e.preventDefault();
+  const f = e.target, v = Object.fromEntries(new FormData(f));
+  if (f.id === 'loginForm') {
+    const {data, error} = await db.auth.signInWithPassword({email: v.email, password: v.password});
+    if (error) { err = error.message; render(); return; }
+    user = data.user; err = ''; await load();
+  } else if (f.id === 'actForm') {
+    let url = (v.url || '').trim();
+    if (url && !/^https?:\/\//i.test(url)) url = 'https://' + url;
+    let title = v.title.trim();
+    if (!title && url) { try { title = new URL(url).hostname.replace(/^www\./, ''); } catch (_) {} }
+    if (!title) return alert('Add a title or a link.');
+    const row = {title, url: url || null, notes: v.notes.trim() || null, day_id: v.day_id || null};
+    const r = modal.id ? await db.from('activities').update({...row, updated_at: new Date().toISOString()}).eq('id', modal.id)
+                       : await db.from('activities').insert(row);
+    if (r.error) return alert(r.error.message);
+    modal = null; await load();
+  } else if (f.id === 'dayForm') {
+    const row = {label: v.label.trim(), location: v.location.trim() || null, day_type: v.day_type, day_date: v.day_date || null,
+      arrival_time: v.arrival_time || null, departure_time: v.departure_time || null,
+      all_aboard_time: v.all_aboard_time || null, notes: v.notes.trim() || null};
+    if (!modal.id) row.sort_order = Math.max(0, ...days.map(d => d.sort_order)) + 10;
+    const r = modal.id ? await db.from('days').update(row).eq('id', modal.id) : await db.from('days').insert(row);
+    if (r.error) return alert(r.error.message);
+    modal = null; await load();
+  }
+});
+
+(async () => {
+  const {data: {session}} = await db.auth.getSession();
+  if (session) { user = session.user; await load(); } else render();
+})();
+</script>
+</body>
+</html>
