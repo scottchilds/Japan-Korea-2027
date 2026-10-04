@@ -57,9 +57,13 @@ function actHtml(a) {
   const n = hearts.filter(h => h.activity_id === a.id).length;
   const mine = hearts.some(h => h.activity_id === a.id && h.user_id === user.id);
   const link = /^https?:\/\//i.test(a.url || '');
-  return `<div class="act"><div>${link ? `<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title)}</a>` : esc(a.title)}</div>
+  const det = [a.start_time && ft(a.start_time), a.booked_via && (a.booked_via === 'ship' ? 'Ship excursion' : 'Independent'), a.provider, a.confirmation_number && 'Conf # ' + a.confirmation_number].filter(Boolean).map(esc).join(' · ');
+  const mapOk = /^https?:\/\//i.test(a.map_url || '');
+  return `<div class="act" style="${a.status === 'canceled' ? 'opacity:.5' : ''}"><div>${link ? `<a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.title)}</a>` : esc(a.title)}</div>
     ${a.notes ? `<div class="mu">${esc(a.notes)}</div>` : ''}
-    <div class="row"><span class="chip">${esc(a.status)}</span>
+    ${det ? `<div class="mu">${det}</div>` : ''}${a.meeting_point ? `<div class="mu">Meet: ${esc(a.meeting_point)}</div>` : ''}
+    ${mapOk ? `<div><a href="${esc(a.map_url)}" target="_blank" rel="noopener">Map</a></div>` : ''}${a.name_ja || a.address_ja ? `<div class="mu" lang="ja">${esc(a.name_ja)} ${esc(a.address_ja)}</div>` : ''}
+    <div class="row"><span class="chip ${a.status === 'booked' ? 'on' : ''}">${esc(a.status)}</span>
     <button class="${mine ? 'on' : ''}" data-act="heart" data-id="${a.id}">${mine ? '♥' : '♡'} ${n}</button>
     <button data-act="edit-act" data-id="${a.id}">Edit</button>
     <span class="mu">added by ${a.added_by === user.id ? 'you' : 'them'}</span></div></div>`;
@@ -75,6 +79,22 @@ function dayHtml(d) {
     <div class="row"><button data-act="new-act" data-day="${d.id}">+ Add here</button></div></div>`;
 }
 
+function bookingFields(a) {
+  const o = (v, l) => `<option value="${v}" ${a.status === v ? 'selected' : ''}>${l}</option>`;
+  const via = v => `selected`.repeat(a.booked_via === v);
+  const tm = s => esc((s || '').slice(0, 5));
+  return `<h2 style="margin-top:14px">Decide and booking</h2>
+    <label>Status<select name="status">${o('idea','Idea')}${o('shortlisted','Shortlisted')}${o('booked','Booked')}${o('canceled','Canceled')}</select></label>
+    <label>Start time<input type="time" name="start_time" value="${tm(a.start_time)}"></label>
+    <label>Booked through<select name="booked_via"><option value="">Not set</option><option value="ship" ${via('ship')}>Ship excursion</option><option value="independent" ${via('independent')}>Independent</option></select></label>
+    <label>Provider<input name="provider" value="${esc(a.provider)}"></label>
+    <label>Confirmation number<input name="confirmation_number" value="${esc(a.confirmation_number)}"></label>
+    <label>Meeting point<input name="meeting_point" value="${esc(a.meeting_point)}"></label>
+    <label>Map link<input name="map_url" inputmode="url" value="${esc(a.map_url)}"></label>
+    <label>Name in Japanese<input name="name_ja" lang="ja" value="${esc(a.name_ja)}"></label>
+    <label>Address in Japanese<input name="address_ja" lang="ja" value="${esc(a.address_ja)}"></label>`;
+}
+
 function modalHtml() {
   let b;
   if (modal.t === 'act') {
@@ -84,7 +104,7 @@ function modalHtml() {
     <label>Link (optional)<input name="url" inputmode="url" value="${esc(a.url)}"></label>
     <label>Notes<textarea name="notes" rows="3">${esc(a.notes)}</textarea></label>
     <label>Day<select name="day_id"><option value="">Not assigned yet</option>${[...days].sort(dayCmp).map(d =>
-      `<option value="${d.id}" ${d.id === a.day_id ? 'selected' : ''}>${esc(d.label)}${d.day_date ? '' : ' (date TBD)'}</option>`).join('')}</select></label>
+      `<option value="${d.id}" ${d.id === a.day_id ? 'selected' : ''}>${esc(d.label)}${d.day_date ? '' : ' (date TBD)'}</option>`).join('')}</select></label>${modal.id ? bookingFields(a) : ''}
     <div class="row"><button class="pri">Save</button><button type="button" data-act="close">Cancel</button>
     ${modal.id ? '<button type="button" class="del" data-act="del-act">Delete</button>' : ''}</div></form>`;
   } else {
@@ -156,6 +176,12 @@ document.addEventListener('submit', async e => {
     if (!title && url) { try { title = new URL(url).hostname.replace(/^www\./, ''); } catch (_) {} }
     if (!title) return alert('Add a title or a link.');
     const row = {title, url: url || null, notes: v.notes.trim() || null, day_id: v.day_id || null};
+    if ('status' in v) {
+      const t = k => (v[k] || '').trim() || null;
+      let map = t('map_url'); if (map && !/^https?:\/\//i.test(map)) map = 'https://' + map;
+      Object.assign(row, {status: v.status, start_time: v.start_time || null, booked_via: v.booked_via || null, provider: t('provider'),
+        confirmation_number: t('confirmation_number'), meeting_point: t('meeting_point'), map_url: map, name_ja: t('name_ja'), address_ja: t('address_ja')});
+    }
     const r = modal.id ? await db.from('activities').update({...row, updated_at: new Date().toISOString()}).eq('id', modal.id)
                        : await db.from('activities').insert(row);
     if (r.error) return alert(r.error.message);
