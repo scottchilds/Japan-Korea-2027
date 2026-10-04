@@ -9,7 +9,7 @@
 @media(prefers-color-scheme:dark){:root{--bg:#121212;--card:#1e1e1e;--tx:#f2f2f2;--mu:#a0a0a5;--bd:#333}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.4 -apple-system,system-ui,sans-serif;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom)}
-#app{max-width:640px;margin:0 auto;padding:12px}
+#app{max-width:640px;margin:0 auto;padding:12px 12px 90px}
 header{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
 h1{font-size:20px;margin:0 auto 0 0}h2{font-size:17px;margin:0 0 10px}
 button{font:inherit;padding:8px 12px;border-radius:8px;border:1px solid var(--bd);background:var(--card);color:var(--tx)}
@@ -21,11 +21,14 @@ button.pri{background:var(--ac);border-color:var(--ac);color:#fff}button.del{col
 .act a{color:var(--ac)}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px}
 .chip{font-size:12px;padding:2px 8px;border-radius:99px;border:1px solid var(--bd);color:var(--mu)}
 .on{border-color:var(--ac);color:var(--ac)}
-.ov{position:fixed;inset:0;background:#0008;display:flex;align-items:flex-end;justify-content:center}
+.ov{z-index:10;position:fixed;inset:0;background:#0008;display:flex;align-items:flex-end;justify-content:center}
 .sheet{background:var(--card);width:100%;max-width:640px;max-height:92vh;overflow:auto;border-radius:16px 16px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom))}
 label{display:block;font-size:14px;color:var(--mu);margin-bottom:10px}
 input,select,textarea{display:block;width:100%;font:inherit;font-size:16px;padding:8px;margin-top:4px;border-radius:8px;border:1px solid var(--bd);background:var(--bg);color:var(--tx)}
 .err{color:var(--ac);font-size:14px}
+nav{position:fixed;left:0;right:0;bottom:0;z-index:5;display:flex;background:var(--card);border-top:1px solid var(--bd);padding-bottom:env(safe-area-inset-bottom)}
+nav button{flex:1;border:0;border-radius:0;padding:14px;background:none}
+nav .on{color:var(--ac);font-weight:600}
 </style>
 </head>
 <body>
@@ -35,6 +38,8 @@ input,select,textarea{display:block;width:100%;font:inherit;font-size:16px;paddi
 const db = supabase.createClient('https://rnhokdffdbizovainxpn.supabase.co', 'sb_publishable_Vpf_xbvrYIfRjdJXrLSuRg_7Ozy9u_F');
 const app = document.getElementById('app');
 let user = null, days = [], acts = [], hearts = [], modal = null, err = '';
+let names = {}, tab = 'plan', tabSet = false, asked = false, pending = false, scrolled = false, tmr, chan;
+const today = () => new Date().toLocaleDateString('en-CA');
 const TYPES = {port:'Port', sea_day:'Sea day', scenic_cruising:'Scenic cruising', city_stay:'City stay', other:'Other'};
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fd = d => d ? new Date(d + 'T00:00:00').toLocaleDateString(undefined, {weekday:'short', month:'short', day:'numeric'}) : 'Date TBD';
@@ -42,14 +47,20 @@ const ft = s => { if (!s) return ''; const [h, m] = s.split(':'); return ((+h % 
 const dayCmp = (x, y) => (x.day_date ? 0 : 1) - (y.day_date ? 0 : 1) || (x.day_date || '').localeCompare(y.day_date || '') || x.sort_order - y.sort_order;
 
 async function load() {
-  const [d, a, h] = await Promise.all([
+  const [d, a, h, p] = await Promise.all([
     db.from('days').select('*'),
     db.from('activities').select('*').order('created_at'),
-    db.from('hearts').select('*')
+    db.from('hearts').select('*'),
+    db.from('profiles').select('*')
   ]);
   const e = d.error || a.error || h.error;
   if (e) alert('Could not load data: ' + e.message);
-  else { days = d.data; acts = a.data; hearts = h.data; }
+  else {
+    days = d.data; acts = a.data; hearts = h.data;
+    names = Object.fromEntries((p.data || []).map(x => [x.id, x.name]));
+    if (!tabSet) { tabSet = true; if (days.some(x => x.day_date === today())) tab = 'trip'; }
+    if (!p.error && user && !names[user.id] && !asked) { asked = true; modal = {t: 'name'}; }
+  }
   render();
 }
 
@@ -66,16 +77,16 @@ function actHtml(a) {
     <div class="row"><span class="chip ${a.status === 'booked' ? 'on' : ''}">${esc(a.status)}</span>
     <button class="${mine ? 'on' : ''}" data-act="heart" data-id="${a.id}">${mine ? '♥' : '♡'} ${n}</button>
     <button data-act="edit-act" data-id="${a.id}">Edit</button>
-    <span class="mu">added by ${a.added_by === user.id ? 'you' : 'them'}</span></div></div>`;
+    <span class="mu">added by ${esc(names[a.added_by] || (a.added_by === user.id ? 'you' : 'them'))}</span></div></div>`;
 }
 
-function dayHtml(d) {
+function dayHtml(d, list, isToday) {
   const t = [d.arrival_time && 'Arrive ' + ft(d.arrival_time), d.departure_time && 'Leave ' + ft(d.departure_time),
     d.day_type === 'port' && 'All aboard: ' + (ft(d.all_aboard_time) || 'not set')].filter(Boolean).join(' · ');
-  return `<div class="day"><div class="dh"><div><b>${esc(d.label)}</b><div class="mu">${fd(d.day_date)} · ${TYPES[d.day_type]}</div>
+  return `<div class="day"${isToday ? ' id="today" style="border-color:var(--ac)"' : ''}><div class="dh"><div><b>${esc(d.label)}</b><div class="mu">${fd(d.day_date)} · ${TYPES[d.day_type]}</div>
     ${t ? `<div class="mu">${t}</div>` : ''}${d.notes ? `<div class="mu">${esc(d.notes)}</div>` : ''}</div>
     <div><button data-act="edit-day" data-id="${d.id}">Edit</button></div></div>
-    ${acts.filter(a => a.day_id === d.id).map(actHtml).join('')}
+    ${(list || acts.filter(a => a.day_id === d.id)).map(actHtml).join('')}${list && !list.length ? '<div class="mu" style="margin-top:8px">Nothing booked yet.</div>' : ''}
     <div class="row"><button data-act="new-act" data-day="${d.id}">+ Add here</button></div></div>`;
 }
 
@@ -97,7 +108,10 @@ function bookingFields(a) {
 
 function modalHtml() {
   let b;
-  if (modal.t === 'act') {
+  if (modal.t === 'name') {
+    b = `<h2>What should we call you?</h2><form id="nameForm"><label>Your first name<input name="name" required value="${esc(names[user.id])}"></label>
+    <div class="row"><button class="pri">Save</button><button type="button" data-act="close">Cancel</button></div></form>`;
+  } else if (modal.t === 'act') {
     const a = acts.find(x => x.id === modal.id) || {day_id: modal.day || ''};
     b = `<h2>${modal.id ? 'Edit' : 'Add'} activity</h2><form id="actForm">
     <label>Title<input name="title" value="${esc(a.title)}"></label>
@@ -125,6 +139,30 @@ function modalHtml() {
   return `<div class="ov"><div class="sheet">${b}</div></div>`;
 }
 
+function tripHtml() {
+  const dated = days.filter(d => d.day_date).sort(dayCmp), t = today();
+  const undated = days.length - dated.length;
+  return dated.map(d => {
+    const booked = acts.filter(a => a.day_id === d.id && a.status === 'booked')
+      .sort((x, y) => (x.start_time || '99').localeCompare(y.start_time || '99'));
+    return dayHtml(d, booked, d.day_date === t);
+  }).join('') + (undated ? `<p class="mu">${undated} day(s) without dates aren't shown here.</p>` : '');
+}
+
+function exportAll() {
+  const blob = new Blob([JSON.stringify({exported_at: new Date().toISOString(), days, activities: acts, hearts, names}, null, 2)], {type: 'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = 'japan-2027-backup-' + today() + '.json'; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+function startLive() {
+  if (chan) return;
+  chan = db.channel('live').on('postgres_changes', {event: '*', schema: 'public'}, () => {
+    clearTimeout(tmr); tmr = setTimeout(() => { if (modal) pending = true; else load(); }, 400);
+  }).subscribe();
+}
+
 function render() {
   if (!user) {
     app.innerHTML = `<h1>Japan 2027</h1><form id="loginForm" style="margin-top:16px">
@@ -134,10 +172,15 @@ function render() {
     return;
   }
   const loose = acts.filter(a => !a.day_id);
+  const body = tab === 'plan'
+    ? `${loose.length ? `<div class="day"><b>Not assigned to a day yet</b>${loose.map(actHtml).join('')}</div>` : ''}${[...days].sort(dayCmp).map(d => dayHtml(d)).join('')}`
+    : tripHtml();
   app.innerHTML = `<header><h1>Japan 2027</h1><button class="pri" data-act="new-act">+ Activity</button>
-    <button data-act="new-day">+ Day</button><button data-act="signout">Sign out</button></header>
-    ${loose.length ? `<div class="day"><b>Not assigned to a day yet</b>${loose.map(actHtml).join('')}</div>` : ''}
-    ${[...days].sort(dayCmp).map(dayHtml).join('')}${modal ? modalHtml() : ''}`;
+    <button data-act="new-day">+ Day</button></header>${body}
+    <div class="row" style="justify-content:center;margin:16px 0"><button data-act="export">Export backup</button><button data-act="name">My name</button><button data-act="signout">Sign out</button></div>
+    <nav><button class="${tab === 'plan' ? 'on' : ''}" data-act="tab" data-id="plan">Planning</button><button class="${tab === 'trip' ? 'on' : ''}" data-act="tab" data-id="trip">Itinerary</button></nav>${modal ? modalHtml() : ''}`;
+  const td = tab === 'trip' && !scrolled && document.getElementById('today');
+  if (td) { scrolled = true; td.scrollIntoView(); }
 }
 
 document.addEventListener('click', async e => {
@@ -147,8 +190,11 @@ document.addEventListener('click', async e => {
   else if (act === 'edit-act') { modal = {t: 'act', id}; render(); }
   else if (act === 'new-day') { modal = {t: 'day'}; render(); }
   else if (act === 'edit-day') { modal = {t: 'day', id}; render(); }
-  else if (act === 'close') { modal = null; render(); }
-  else if (act === 'signout') { await db.auth.signOut(); user = null; render(); }
+  else if (act === 'close') { modal = null; if (pending) { pending = false; await load(); } else render(); }
+  else if (act === 'tab') { tab = id; scrolled = false; window.scrollTo(0, 0); render(); }
+  else if (act === 'name') { modal = {t: 'name'}; render(); }
+  else if (act === 'export') exportAll();
+  else if (act === 'signout') { await db.auth.signOut(); if (chan) { db.removeChannel(chan); chan = null; } user = null; days = []; acts = []; hearts = []; render(); }
   else if (act === 'heart') {
     const mine = hearts.some(h => h.activity_id === id && h.user_id === user.id);
     const r = mine ? await db.from('hearts').delete().eq('activity_id', id).eq('user_id', user.id)
@@ -168,7 +214,11 @@ document.addEventListener('submit', async e => {
   if (f.id === 'loginForm') {
     const {data, error} = await db.auth.signInWithPassword({email: v.email, password: v.password});
     if (error) { err = error.message; render(); return; }
-    user = data.user; err = ''; await load();
+    user = data.user; err = ''; await load(); startLive();
+  } else if (f.id === 'nameForm') {
+    const r = await db.from('profiles').upsert({id: user.id, name: v.name.trim()});
+    if (r.error) return alert(r.error.message);
+    modal = null; await load();
   } else if (f.id === 'actForm') {
     let url = (v.url || '').trim();
     if (url && !/^https?:\/\//i.test(url)) url = 'https://' + url;
@@ -199,7 +249,7 @@ document.addEventListener('submit', async e => {
 
 (async () => {
   const {data: {session}} = await db.auth.getSession();
-  if (session) { user = session.user; await load(); } else render();
+  if (session) { user = session.user; await load(); startLive(); } else render();
 })();
 </script>
 </body>
