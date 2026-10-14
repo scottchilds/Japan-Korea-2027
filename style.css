@@ -12,7 +12,7 @@ a{color:inherit}
 .tog{width:40px;padding:0;justify-content:center}
 .dot{width:16px;height:16px;border-radius:50%;background:var(--red)}
 .dot.kr{background:linear-gradient(var(--red) 49%,var(--blue) 50%)}
-.hd{padding:20px 32px 0}
+.hd{padding:52px 32px 0}
 .hrow{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
 h1{font:400 62px/1 Coiny,system-ui,sans-serif;color:var(--red);margin:0;overflow-wrap:normal}
 .times{display:flex;gap:16px;align-items:center;margin-top:12px;font-weight:700}
