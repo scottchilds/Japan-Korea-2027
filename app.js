@@ -99,14 +99,12 @@ function render() {
   const list = d ? acts.filter(a => a.day_id === d.id && (mode === 'plan' || a.status === 'booked'))
     .sort((x, y) => (x.start_time || '99').localeCompare(y.start_time || '99')) : [];
   const second = d && (d.all_aboard_time || d.departure_time);
-  const size = d ? Math.max(38, Math.min(67, Math.floor(330 / (((d.city || d.label).length) * 0.6)))) : 67;
   const prev = document.querySelector('.pills'), keep = prev ? prev.scrollLeft : null;
   app.innerHTML = `<div class="pills"><button class="pill tog" data-a="mode" aria-label="Switch mode">${icon(mode === 'plan' ? 'calendar' : 'ship', 22)}</button>
     ${vis.map(v => `<button class="pill ${v.id === sel ? 'sel' : ''}" data-a="day" data-id="${v.id}">${badge(v)}${esc(dayName(v))}</button>`).join('')}</div>
-    ${d ? `<div class="hd"><div class="hrow"><h1 style="font-size:${size}px">${esc(d.city || d.label)}</h1>
-    <button class="ib" data-a="edit-day" data-id="${d.id}" aria-label="Edit day">${icon('edit', 22)}</button></div>
+    ${d ? `<div class="hd"><h1>${esc(d.city || d.label)}</h1>
     <div class="times">${d.arrival_time ? `<span><i style="color:var(--green)">${icon('anchor', 20)}</i>${ft(d.arrival_time)}</span>` : ''}
-    ${second ? `<span><i style="color:var(--red)">${icon('anchor', 20)}</i>${ft(second)}</span>` : ''}</div></div>
+    ${second ? `<span><i style="color:var(--red)">${icon('anchor', 20)}</i>${ft(second)}</span>` : ''}<button class="ib" data-a="edit-day" data-id="${d.id}" aria-label="Edit day">${icon('edit', 22)}</button></div></div>
     <div class="cards">${list.map(card).join('') || `<div class="empty">${mode === 'trip' ? 'Nothing booked yet.' : 'No ideas yet. Tap + to add one.'}</div>`}</div>` : '<div class="empty">No days to show yet.</div>'}
     <div class="foot"><button data-a="export">Export backup</button><button data-a="signout">Sign out</button></div>
     <button class="fab" data-a="new-act" aria-label="Add activity">${icon('add', 64)}</button>${modal ? sheet() : ''}`;
