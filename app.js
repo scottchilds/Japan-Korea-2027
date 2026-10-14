@@ -106,7 +106,7 @@ function render() {
     <div class="times">${d.arrival_time ? `<span><i style="color:var(--green)">${icon('anchor', 20)}</i>${ft(d.arrival_time)}</span>` : ''}
     ${second ? `<span><i style="color:var(--red)">${icon('anchor', 20)}</i>${ft(second)}</span>` : ''}<button class="ib" data-a="edit-day" data-id="${d.id}" aria-label="Edit day">${icon('edit', 22)}</button></div></div>
     <div class="cards">${list.map(card).join('') || `<div class="empty">${mode === 'trip' ? 'Nothing booked yet.' : 'No ideas yet. Tap + to add one.'}</div>`}</div>` : '<div class="empty">No days to show yet.</div>'}
-    <div class="foot"><button data-a="export">Export backup</button><button data-a="signout">Sign out</button></div>
+    <div class="foot"><button data-a="reload">Reload latest</button><button data-a="export">Export backup</button><button data-a="signout">Sign out</button></div>
     <button class="fab" data-a="new-act" aria-label="Add activity">${icon('add', 80)}</button>${modal ? sheet() : ''}`;
   const pl = document.querySelector('.pills'), on = pl && pl.querySelector('.sel');
   if (pl) {
@@ -139,6 +139,7 @@ document.addEventListener('click', async e => {
   else if (act === 'edit-day') { modal = {t: 'day', id}; render(); }
   else if (act === 'close') { modal = null; if (pending) { pending = false; await load(); } else render(); }
   else if (act === 'export') exportAll();
+  else if (act === 'reload') location.href = location.pathname + '?v=' + Date.now();
   else if (act === 'signout') { await db.auth.signOut(); if (chan) { db.removeChannel(chan); chan = null; } user = null; days = []; acts = []; hearts = []; render(); }
   else if (act === 'heart') {
     const mine = hearts.some(h => h.activity_id === id && h.user_id === user.id);
@@ -161,7 +162,14 @@ document.addEventListener('submit', async e => {
     if (error) { err = error.message; render(); return; }
     user = data.user; err = ''; await load(); startLive();
   } else if (f.id === 'actForm') {
-    let url = fixUrl(v.url), title = v.title.trim();
+    let url = fixUrl(v.url), title = v.title.trim(), preview = null;
+    const old = acts.find(x => x.id === modal.id);
+    if (url && !(v.image_url || '').trim() && (!old || old.url !== url || !old.image_url)) {
+      const btn = f.querySelector('.pri'); btn.disabled = true; btn.textContent = 'Fetching preview...';
+      try { preview = (await db.functions.invoke('link-preview', {body: {url}})).data; } catch (_) {}
+      btn.disabled = false; btn.textContent = 'Save';
+    }
+    if (!title && preview && preview.title) title = preview.title;
     if (!title && url) { try { title = new URL(url).hostname.replace(/^www\./, ''); } catch (_) {} }
     if (!title) return alert('Add a title or a link.');
     const row = {title, url: url || null, day_id: v.day_id, start_time: v.start_time || null, end_time: v.end_time || null,
@@ -169,6 +177,7 @@ document.addEventListener('submit', async e => {
     if ('status' in v) Object.assign(row, {status: v.status, booked_via: v.booked_via || null, provider: t('provider'),
       confirmation_number: t('confirmation_number'), meeting_point: t('meeting_point'), map_url: fixUrl(v.map_url) || null,
       name_ja: t('name_ja'), address_ja: t('address_ja'), image_url: fixUrl(v.image_url) || null});
+    if (preview && preview.image_url) row.image_url = preview.image_url;
     const r = modal.id ? await db.from('activities').update({...row, updated_at: new Date().toISOString()}).eq('id', modal.id) : await db.from('activities').insert(row);
     if (r.error) return alert(r.error.message);
     sel = row.day_id; modal = null; await load();
