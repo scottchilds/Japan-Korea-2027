@@ -107,7 +107,7 @@ function render() {
     ${second ? `<span><i style="color:var(--red)">${icon('anchor', 20)}</i>${ft(second)}</span>` : ''}<button class="ib" data-a="edit-day" data-id="${d.id}" aria-label="Edit day">${icon('edit', 22)}</button></div></div>
     <div class="cards">${list.map(card).join('') || `<div class="empty">${mode === 'trip' ? 'Nothing booked yet.' : 'No ideas yet. Tap + to add one.'}</div>`}</div>` : '<div class="empty">No days to show yet.</div>'}
     <div class="foot"><button data-a="export">Export backup</button><button data-a="signout">Sign out</button></div>
-    <button class="fab" data-a="new-act" aria-label="Add activity">${icon('add', 64)}</button>${modal ? sheet() : ''}`;
+    <button class="fab" data-a="new-act" aria-label="Add activity">${icon('add', 80)}</button>${modal ? sheet() : ''}`;
   const pl = document.querySelector('.pills'), on = pl && pl.querySelector('.sel');
   if (pl) {
     if (keep != null) pl.scrollLeft = keep;
